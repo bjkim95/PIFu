@@ -5,6 +5,8 @@ import math
 from scipy.special import sph_harm
 import argparse
 from tqdm import tqdm
+from pathlib import Path  
+import pdb
 
 def factratio(N, D):
     if N >= D:
@@ -139,4 +141,6 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n_sample', type=int, default=40, help='squared root of number of sampling. the higher, the more accurate, but slower')
     args = parser.parse_args()
 
-    testPRT(args.input)
+    input_dir = Path(args.input)
+    for subject in input_dir.iterdir():
+        testPRT(str(subject))

@@ -12,6 +12,8 @@ import random
 import pyexr
 import argparse
 from tqdm import tqdm
+from pathlib import Path
+import ipdb
 
 
 def make_rotate(rx, ry, rz):
@@ -221,7 +223,7 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
             rndr_uv.rot_matrix = R
             rndr.set_camera(cam)
             rndr_uv.set_camera(cam)
-
+            
             for j in range(n_light):
                 sh_id = random.randint(0,shs.shape[0]-1)
                 sh = shs[sh_id]
@@ -283,8 +285,12 @@ if __name__ == '__main__':
     from lib.renderer.gl.prt_render import PRTRender
     rndr = PRTRender(width=args.size, height=args.size, ms_rate=args.ms_rate, egl=args.egl)
     rndr_uv = PRTRender(width=args.size, height=args.size, uv_mode=True, egl=args.egl)
-
-    if args.input[-1] == '/':
-        args.input = args.input[:-1]
-    subject_name = args.input.split('/')[-1][:-4]
-    render_prt_ortho(args.out_dir, args.input, subject_name, shs, rndr, rndr_uv, args.size, 1, 1, pitch=[0])
+    
+    input_dir = Path(args.input)
+    for subject in sorted(input_dir.iterdir()):
+        subject_name = subject.stem[:-4]
+        subject_render_dir = os.path.join(args.out_dir, 'RENDER', subject_name)
+        if os.path.exists(subject_render_dir) and \
+           (len(os.listdir(subject_render_dir)) == 360): # for unexpected exit before done processing
+           continue
+        render_prt_ortho(args.out_dir, str(subject), subject_name, shs, rndr, rndr_uv, args.size, 1, 1, pitch=[0])
