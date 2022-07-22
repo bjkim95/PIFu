@@ -20,6 +20,7 @@ from lib.train_util import *
 from lib.data import *
 from lib.model import *
 from lib.geometry import index
+import datetime
 
 # get options
 opt = BaseOptions().parse()
@@ -27,12 +28,12 @@ opt = BaseOptions().parse()
 def train(opt):
     # set cuda
     cuda = torch.device('cuda:%d' % opt.gpu_id)
-
+    
     train_dataset = TrainDataset(opt, phase='train')
     test_dataset = TrainDataset(opt, phase='test')
 
     projection_mode = train_dataset.projection_mode
-
+    
     # create data loader
     train_data_loader = DataLoader(train_dataset,
                                    batch_size=opt.batch_size, shuffle=not opt.serial_batches,
@@ -75,7 +76,7 @@ def train(opt):
     os.makedirs(opt.results_path, exist_ok=True)
     os.makedirs('%s/%s' % (opt.checkpoints_path, opt.name), exist_ok=True)
     os.makedirs('%s/%s' % (opt.results_path, opt.name), exist_ok=True)
-
+    
     opt_log = os.path.join(opt.results_path, opt.name, 'opt.txt')
     with open(opt_log, 'w') as outfile:
         outfile.write(json.dumps(vars(opt), indent=2))
@@ -83,6 +84,7 @@ def train(opt):
     # training
     start_epoch = 0 if not opt.continue_train else max(opt.resume_epoch,0)
     for epoch in range(start_epoch, opt.num_epoch):
+        print(datetime.datetime.now())
         epoch_start_time = time.time()
 
         set_train()
