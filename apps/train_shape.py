@@ -10,7 +10,10 @@ import numpy as np
 import cv2
 import random
 import torch
+import torch.nn as nn
+import torch.distributed as dist
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 from lib.options import BaseOptions
@@ -21,13 +24,52 @@ from lib.data import *
 from lib.model import *
 from lib.geometry import index
 import datetime
+import pdb
 
 # get options
 opt = BaseOptions().parse()
 
+#-------------for distributed training--------------
+#----------borrowed from https://github.com/The-AI-Summer/pytorch-ddp.git -------------
+def is_dist_avail_and_initialized():
+    if not dist.is_available():
+        return False
+
+    if not dist.is_initialized():
+        return False
+
+    return True
+
+def save_on_master(*args, **kwargs):
+
+    if is_main_process():
+        torch.save(*args, **kwargs)
+
+def get_rank():
+
+    if not is_dist_avail_and_initialized():
+        return 0
+
+    return dist.get_rank()
+
+def is_main_process():
+
+    return get_rank() == 0
+#----------------------------------------
+
 def train(opt):
-    # set cuda
-    cuda = torch.device('cuda:%d' % opt.gpu_id)
+    distributed = False
+    if 'WORLD_SIZE' in os.environ:
+        distributed = (int(os.environ['WORLD_SIZE']) > 1)
+
+    if distributed:
+        torch.cuda.set_device(opt.local_rank)
+        dist.init_process_group(backend='nccl', init_method='env://')
+        cuda = torch.device(f'cuda:{opt.local_rank}')
+
+    else:
+        # set cuda
+        cuda = torch.device(f'cuda:{opt.gpu_id}')
     
     train_dataset = TrainDataset(opt, phase='train')
     test_dataset = TrainDataset(opt, phase='test')
@@ -35,23 +77,42 @@ def train(opt):
     projection_mode = train_dataset.projection_mode
     
     # create data loader
-    train_data_loader = DataLoader(train_dataset,
+    if distributed:
+        train_sampler = DistributedSampler(dataset=train_dataset, shuffle=not opt.serial_batches)
+        test_sampler = DistributedSampler(dataset=test_dataset, shuffle=not opt.serial_batches)
+        train_data_loader = DataLoader(train_dataset,
+                                   batch_size=opt.batch_size, sampler=train_sampler,
+                                   num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+        # NOTE: batch size should be 1 and use all the points for evaluation
+        test_data_loader = DataLoader(test_dataset,
+                                  batch_size=1, shuffle=False, sampler=test_sampler,
+                                  num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+    else:
+        train_sampler = None
+        test_sampler = None
+        train_data_loader = DataLoader(train_dataset,
                                    batch_size=opt.batch_size, shuffle=not opt.serial_batches,
                                    num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+        # NOTE: batch size should be 1 and use all the points for evaluation
+        test_data_loader = DataLoader(test_dataset,
+                                  batch_size=1, shuffle=not opt.serial_batches,
+                                  num_workers=opt.num_threads, pin_memory=opt.pin_memory)
 
     print('train data size: ', len(train_data_loader))
-
-    # NOTE: batch size should be 1 and use all the points for evaluation
-    test_data_loader = DataLoader(test_dataset,
-                                  batch_size=1, shuffle=False,
-                                  num_workers=opt.num_threads, pin_memory=opt.pin_memory)
     print('test data size: ', len(test_data_loader))
 
     # create net
-    netG = HGPIFuNet(opt, projection_mode).to(device=cuda)
+    netG = HGPIFuNet(opt, projection_mode)
+    netG_name = netG.name
+    if distributed:
+        netG = nn.SyncBatchNorm.convert_sync_batchnorm(netG)
+        print(opt.local_rank)
+        netG = nn.parallel.DistributedDataParallel(netG.to(device=cuda), device_ids=[opt.local_rank], find_unused_parameters=True)
+    else:
+        netG = HGPIFuNet(opt, projection_mode).to(device=cuda)
     optimizerG = torch.optim.RMSprop(netG.parameters(), lr=opt.learning_rate, momentum=0, weight_decay=0)
     lr = opt.learning_rate
-    print('Using Network: ', netG.name)
+    print('Using Network: ', netG_name)
     
     def set_train():
         netG.train()
@@ -60,7 +121,7 @@ def train(opt):
         netG.eval()
 
     # load checkpoints
-    if opt.load_netG_checkpoint_path is not None:
+    if opt.load_netG_checkpoint_path is not None and is_main_process():
         print('loading for net G ...', opt.load_netG_checkpoint_path)
         netG.load_state_dict(torch.load(opt.load_netG_checkpoint_path, map_location=cuda))
 
@@ -69,7 +130,8 @@ def train(opt):
             model_path = '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name)
         else:
             model_path = '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, opt.resume_epoch)
-        print('Resuming from ', model_path)
+        if is_main_process():
+            print('Resuming from ', model_path)
         netG.load_state_dict(torch.load(model_path, map_location=cuda))
 
     os.makedirs(opt.checkpoints_path, exist_ok=True)
@@ -87,6 +149,9 @@ def train(opt):
         print(datetime.datetime.now())
         epoch_start_time = time.time()
 
+        if distributed:
+            train_data_loader.sampler.set_epoch(epoch)
+        
         set_train()
         iter_data_time = time.time()
         for train_idx, train_data in enumerate(train_data_loader):
@@ -114,7 +179,7 @@ def train(opt):
             eta = ((iter_net_time - epoch_start_time) / (train_idx + 1)) * len(train_data_loader) - (
                     iter_net_time - epoch_start_time)
 
-            if train_idx % opt.freq_plot == 0:
+            if train_idx % opt.freq_plot == 0 and is_main_process():
                 print(
                     'Name: {0} | Epoch: {1} | {2}/{3} | Err: {4:.06f} | LR: {5:.06f} | Sigma: {6:.02f} | dataT: {7:.05f} | netT: {8:.05f} | ETA: {9:02d}:{10:02d}'.format(
                         opt.name, epoch, train_idx, len(train_data_loader), error.item(), lr, opt.sigma,
@@ -122,11 +187,11 @@ def train(opt):
                                                                             iter_net_time - iter_start_time, int(eta // 60),
                         int(eta - 60 * (eta // 60))))
 
-            if train_idx % opt.freq_save == 0 and train_idx != 0:
+            if train_idx % opt.freq_save == 0 and train_idx != 0 and is_main_process():
                 torch.save(netG.state_dict(), '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
                 torch.save(netG.state_dict(), '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
 
-            if train_idx % opt.freq_save_ply == 0:
+            if train_idx % opt.freq_save_ply == 0 and is_main_process():
                 save_path = '%s/%s/pred.ply' % (opt.results_path, opt.name)
                 r = res[0].cpu()
                 points = sample_tensor[0].transpose(0, 1).cpu()
@@ -169,7 +234,8 @@ def train(opt):
                     test_data = random.choice(test_dataset)
                     save_path = '%s/%s/test_eval_epoch%d_%s.obj' % (
                         opt.results_path, opt.name, epoch, test_data['name'])
-                    gen_mesh(opt, netG, cuda, test_data, save_path)
+                    if is_main_process():
+                        gen_mesh(opt, netG, cuda, test_data, save_path)
 
                 print('generate mesh (train) ...')
                 train_dataset.is_train = False
@@ -177,7 +243,8 @@ def train(opt):
                     train_data = random.choice(train_dataset)
                     save_path = '%s/%s/train_eval_epoch%d_%s.obj' % (
                         opt.results_path, opt.name, epoch, train_data['name'])
-                    gen_mesh(opt, netG, cuda, train_data, save_path)
+                    if is_main_process():
+                        gen_mesh(opt, netG, cuda, train_data, save_path)
                 train_dataset.is_train = True
 
 

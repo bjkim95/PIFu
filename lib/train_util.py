@@ -1,4 +1,5 @@
 import torch
+from torch.nn.parallel import DistributedDataParallel as DDP
 import numpy as np
 from .mesh_util import *
 from .sample_util import *
@@ -45,6 +46,8 @@ def gen_mesh(opt, net, cuda, data, save_path, use_octree=True):
     image_tensor = data['img'].to(device=cuda)
     calib_tensor = data['calib'].to(device=cuda)
 
+    if isinstance(net, DDP):
+        net = net.module
     net.filter(image_tensor)
 
     b_min = data['b_min']
@@ -73,7 +76,11 @@ def gen_mesh(opt, net, cuda, data, save_path, use_octree=True):
 def gen_mesh_color(opt, netG, netC, cuda, data, save_path, use_octree=True):
     image_tensor = data['img'].to(device=cuda)
     calib_tensor = data['calib'].to(device=cuda)
-
+ 
+    if isinstance(netG, DDP):
+        netG = netG.module
+    if isinstance(netC, DDP):
+        netC = netC.module
     netG.filter(image_tensor)
     netC.filter(image_tensor)
     netC.attach(netG.get_im_feat())

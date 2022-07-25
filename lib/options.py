@@ -87,6 +87,7 @@ class BaseOptions():
                              help='using tanh after last conv of image_filter network')
 
         # for train
+        parser.add_argument('--local_rank', type=int, default=0)
         parser.add_argument('--random_flip', action='store_true', help='if random flip')
         parser.add_argument('--random_trans', action='store_true', help='if random flip')
         parser.add_argument('--random_scale', action='store_true', help='if random flip')
