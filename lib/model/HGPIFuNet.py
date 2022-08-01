@@ -6,6 +6,7 @@ from .SurfaceClassifier import SurfaceClassifier
 from .DepthNormalizer import DepthNormalizer
 from .HGFilters import *
 from ..net_util import init_net
+import ipdb
 
 
 class HGPIFuNet(BasePIFuNet):
@@ -85,7 +86,9 @@ class HGPIFuNet(BasePIFuNet):
         z = xyz[:, 2:3, :]
 
         in_img = (xy[:, 0] >= -1.0) & (xy[:, 0] <= 1.0) & (xy[:, 1] >= -1.0) & (xy[:, 1] <= 1.0)
-
+        if self.num_views > 1:
+            num_points = in_img.shape[-1]
+            in_img = in_img.view(-1, self.num_views, num_points).prod(dim=1)  # logical_and along the view dimension
         z_feat = self.normalizer(z, calibs=calibs)
 
         if self.opt.skip_hourglass:
