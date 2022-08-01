@@ -154,7 +154,7 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
     cam.sanity_check()
 
     # set path for obj, prt
-    mesh_file = os.path.join(folder_name, subject_name + '_100k.obj')
+    mesh_file = os.path.join(folder_name, subject_name + '_100k.ply')
     if not os.path.exists(mesh_file):
         print('ERROR: obj file does not exist!!', mesh_file)
         return 
@@ -166,34 +166,34 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
     if not os.path.exists(face_prt_file):
         print('ERROR: face prt file does not exist!!!', prt_file)
         return
-    text_file = os.path.join(folder_name, 'tex', subject_name + '_dif_2k.jpg')
-    if not os.path.exists(text_file):
-        print('ERROR: dif file does not exist!!', text_file)
-        return             
+    # text_file = os.path.join(folder_name, 'tex', subject_name + '_dif_2k.jpg')
+    # if not os.path.exists(text_file):
+    #     print('ERROR: dif file does not exist!!', text_file)
+    #     return             
 
-    texture_image = cv2.imread(text_file)
-    texture_image = cv2.cvtColor(texture_image, cv2.COLOR_BGR2RGB)
-
+    #texture_image = cv2.imread(text_file)
+    #texture_image = cv2.cvtColor(texture_image, cv2.COLOR_BGR2RGB)
+    
     vertices, faces, normals, faces_normals, textures, face_textures = load_obj_mesh(mesh_file, with_normal=True, with_texture=True)
     vmin = vertices.min(0)
     vmax = vertices.max(0)
-    up_axis = 1 if (vmax-vmin).argmax() == 1 else 2
+    up_axis = 1 if (vmax-vmin).argmax() == 1 else 2  # based on the prior of human shape - max variation in the height direction
     
     vmed = np.median(vertices, 0)
     vmed[up_axis] = 0.5*(vmax[up_axis]+vmin[up_axis])
-    y_scale = 180/(vmax[up_axis] - vmin[up_axis])
+    y_scale = 180/(vmax[up_axis] - vmin[up_axis])  # normalize in the way that the height of mesh fits to 180 
 
-    rndr.set_norm_mat(y_scale, vmed)
+    rndr.set_norm_mat(scale=y_scale, center=vmed)
     rndr_uv.set_norm_mat(y_scale, vmed)
 
     tan, bitan = compute_tangent(vertices, faces, normals, textures, face_textures)
     prt = np.loadtxt(prt_file)
     face_prt = np.load(face_prt_file)
     rndr.set_mesh(vertices, faces, normals, faces_normals, textures, face_textures, prt, face_prt, tan, bitan)    
-    rndr.set_albedo(texture_image)
+    # rndr.set_albedo(texture_image)
 
     rndr_uv.set_mesh(vertices, faces, normals, faces_normals, textures, face_textures, prt, face_prt, tan, bitan)   
-    rndr_uv.set_albedo(texture_image)
+    # rndr_uv.set_albedo(texture_image)
 
     os.makedirs(os.path.join(out_path, 'GEO', 'OBJ', subject_name),exist_ok=True)
     os.makedirs(os.path.join(out_path, 'PARAM', subject_name),exist_ok=True)
@@ -245,26 +245,26 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
                 cv2.imwrite(os.path.join(out_path, 'RENDER', subject_name, '%d_%d_%02d.jpg'%(y,p,j)),255.0*out_all_f)
                 cv2.imwrite(os.path.join(out_path, 'MASK', subject_name, '%d_%d_%02d.png'%(y,p,j)),255.0*out_mask)
 
-                rndr_uv.set_sh(sh)
-                rndr_uv.analytic = False
-                rndr_uv.use_inverse_depth = False
-                rndr_uv.display()
+                # rndr_uv.set_sh(sh)
+                # rndr_uv.analytic = False
+                # rndr_uv.use_inverse_depth = False
+                # rndr_uv.display()
 
-                uv_color = rndr_uv.get_color(0)
-                uv_color = cv2.cvtColor(uv_color, cv2.COLOR_RGBA2BGR)
-                cv2.imwrite(os.path.join(out_path, 'UV_RENDER', subject_name, '%d_%d_%02d.jpg'%(y,p,j)),255.0*uv_color)
+                # uv_color = rndr_uv.get_color(0)
+                # uv_color = cv2.cvtColor(uv_color, cv2.COLOR_RGBA2BGR)
+                # cv2.imwrite(os.path.join(out_path, 'UV_RENDER', subject_name, '%d_%d_%02d.jpg'%(y,p,j)),255.0*uv_color)
 
-                if y == 0 and j == 0 and p == pitch[0]:
-                    uv_pos = rndr_uv.get_color(1)
-                    uv_mask = uv_pos[:,:,3]
-                    cv2.imwrite(os.path.join(out_path, 'UV_MASK', subject_name, '00.png'),255.0*uv_mask)
+                # if y == 0 and j == 0 and p == pitch[0]:
+                #     uv_pos = rndr_uv.get_color(1)
+                #     uv_mask = uv_pos[:,:,3]
+                #     cv2.imwrite(os.path.join(out_path, 'UV_MASK', subject_name, '00.png'),255.0*uv_mask)
 
-                    data = {'default': uv_pos[:,:,:3]} # default is a reserved name
-                    pyexr.write(os.path.join(out_path, 'UV_POS', subject_name, '00.exr'), data) 
+                #     data = {'default': uv_pos[:,:,:3]} # default is a reserved name
+                #     pyexr.write(os.path.join(out_path, 'UV_POS', subject_name, '00.exr'), data) 
 
-                    uv_nml = rndr_uv.get_color(2)
-                    uv_nml = cv2.cvtColor(uv_nml, cv2.COLOR_RGBA2BGR)
-                    cv2.imwrite(os.path.join(out_path, 'UV_NORMAL', subject_name, '00.png'),255.0*uv_nml)
+                #     uv_nml = rndr_uv.get_color(2)
+                #     uv_nml = cv2.cvtColor(uv_nml, cv2.COLOR_RGBA2BGR)
+                #     cv2.imwrite(os.path.join(out_path, 'UV_NORMAL', subject_name, '00.png'),255.0*uv_nml)
 
 
 if __name__ == '__main__':

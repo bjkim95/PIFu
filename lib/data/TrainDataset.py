@@ -144,9 +144,9 @@ class TrainDataset(Dataset):
             # loading calibration data
             param = np.load(param_path, allow_pickle=True)
             # pixel unit / world unit
-            ortho_ratio = param.item().get('ortho_ratio')
+            ortho_ratio = param.item().get('ortho_ratio')  # cam.ortho_ratio = 0.4 * (512 / im_size)
             # world unit / model unit
-            scale = param.item().get('scale')
+            scale = param.item().get('scale')  # y_scale = 180/(vmax[up_axis] - vmin[up_axis])
             # camera center world coordinate
             center = param.item().get('center')
             # model rotation

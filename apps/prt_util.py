@@ -66,7 +66,7 @@ def save_obj(mesh_path, verts):
 def sampleSphericalDirections(n):
     xv = np.random.rand(n,n)
     yv = np.random.rand(n,n)
-    theta = np.arccos(1-2 * xv)
+    theta = np.arccos(1-2 * xv)  # [0, 1] => [-1, 1] => theta
     phi = 2.0 * math.pi * yv
 
     phi = phi.reshape(-1)
@@ -124,23 +124,28 @@ def computePRT(mesh_path, n, order):
     # when loading PRT in other program, use the triangle list from trimesh.
     return PRT, mesh.faces
 
-def testPRT(dir_path, n=40):
-    if dir_path[-1] == '/':
-        dir_path = dir_path[:-1]
-    sub_name = dir_path.split('/')[-1][:-4]
-    obj_path = os.path.join(dir_path, sub_name + '_100k.obj')
-    os.makedirs(os.path.join(dir_path, 'bounce'), exist_ok=True)
+def testPRT(dir_path, n=40, ext='obj'):
+    sub_name = dir_path.stem[:-4]
+    obj_path = dir_path / (sub_name + f'_100k.{ext}')
 
-    PRT, F = computePRT(obj_path, n, 2)
-    np.savetxt(os.path.join(dir_path, 'bounce', 'bounce0.txt'), PRT, fmt='%.8f')
-    np.save(os.path.join(dir_path, 'bounce', 'face.npy'), F)
+    bounce_path = dir_path / 'bounce'
+    if (bounce_path / 'bounce0.txt').exists():
+        return
+    bounce_path.mkdir(exist_ok=True)
+
+    PRT, F = computePRT(str(obj_path), n, 2)
+    np.savetxt(str(bounce_path / 'bounce0.txt'), PRT, fmt='%.8f')
+    np.save(str(bounce_path / 'face.npy'), F)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input', type=str, default='/home/shunsuke/Downloads/rp_dennis_posed_004_OBJ')
     parser.add_argument('-n', '--n_sample', type=int, default=40, help='squared root of number of sampling. the higher, the more accurate, but slower')
+    parser.add_argument('--ext', type=str, default='obj', choices=['obj', 'ply'],
+                        help='specify file extension of mesh files')
     args = parser.parse_args()
 
     input_dir = Path(args.input)
-    for subject in input_dir.iterdir():
-        testPRT(str(subject))
+    for subject in sorted(input_dir.iterdir()):
+        print(f'processing {subject.stem}')
+        testPRT(subject, ext=args.ext)
