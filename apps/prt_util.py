@@ -7,6 +7,9 @@ import argparse
 from tqdm import tqdm
 from pathlib import Path  
 import pdb
+import multiprocessing as mp
+import parmap
+from functools import partial
 
 def factratio(N, D):
     if N >= D:
@@ -111,7 +114,7 @@ def computePRT(mesh_path, n, order):
         hits = mesh.ray.intersects_any(origins + delta * normals, vectors)
         nohits = np.logical_and(front, np.logical_not(hits))
 
-        PRT = (nohits.astype(np.float) * dots)[:,None] * SH
+        PRT = (nohits.astype(float) * dots)[:,None] * SH
         
         if PRT_all is not None:
             PRT_all += (PRT.reshape(-1, n, SH.shape[1]).sum(1))
@@ -125,6 +128,7 @@ def computePRT(mesh_path, n, order):
     return PRT, mesh.faces
 
 def testPRT(dir_path, dataset='rp', n=40):
+    print(f'processing {dir_path}')
     if dataset == 'rp':
         sub_name = dir_path.stem[:-4]
         obj_path = dir_path / (sub_name + f'_100k.obj')
@@ -145,6 +149,7 @@ def testPRT(dir_path, dataset='rp', n=40):
     PRT, F = computePRT(str(obj_path), n, 2)
     np.savetxt(str(bounce_path / 'bounce0.txt'), PRT, fmt='%.8f')
     np.save(str(bounce_path / 'face.npy'), F)
+    print(f'processing {dir_path} done!')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -152,9 +157,14 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n_sample', type=int, default=40, help='squared root of number of sampling. the higher, the more accurate, but slower')
     parser.add_argument('--dataset', type=str, default='rp', choices=['rp', 'ioys', 'thuman'],
                         help='specify the type of dataset')
+    parser.add_argument('--mp', default=False, action='store_true', help='multiprocessing')
     args = parser.parse_args()
 
     input_dir = Path(args.input)
-    for subject in sorted(input_dir.iterdir()):
-        print(f'processing {subject.stem}')
-        testPRT(subject, dataset=args.dataset)
+    if args.mp:
+        testPRT_dataset = partial(testPRT, dataset=args.dataset)
+        parmap.map(testPRT_dataset, sorted(input_dir.iterdir()), pm_pbar=True, pm_processes=mp.cpu_count())
+
+    else:
+        for subject in sorted(input_dir.iterdir()):
+            testPRT(subject, dataset=args.dataset)
