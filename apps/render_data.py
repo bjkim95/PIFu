@@ -146,7 +146,7 @@ def rotateBand2(x, R):
 
     return dst
 
-def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im_size, angl_step=4, n_light=1, pitch=[0]):
+def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im_size, angl_step=4, n_light=1, pitch=[0], dataset='rp', copied_mesh_ext='obj'):
     cam = Camera(width=im_size, height=im_size)
     cam.ortho_ratio = 0.4 * (512 / im_size)
     cam.near = -100
@@ -154,7 +154,12 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
     cam.sanity_check()
 
     # set path for obj, prt
-    mesh_file = os.path.join(folder_name, subject_name + '_100k.ply')
+    if dataset == 'rp' or dataset == 'ioys':
+        mesh_file = os.path.join(folder_name, subject_name + '_100k.obj')
+    elif dataset == 'thuman':
+        mesh_file = os.path.join(folder_name, subject_name + '.obj')
+    else:
+        raise NotImplementedError
     if not os.path.exists(mesh_file):
         print('ERROR: obj file does not exist!!', mesh_file)
         return 
@@ -166,13 +171,16 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
     if not os.path.exists(face_prt_file):
         print('ERROR: face prt file does not exist!!!', prt_file)
         return
-    # text_file = os.path.join(folder_name, 'tex', subject_name + '_dif_2k.jpg')
-    # if not os.path.exists(text_file):
-    #     print('ERROR: dif file does not exist!!', text_file)
-    #     return             
+    if dataset == 'rp' or dataset == 'ioys':
+        text_file = os.path.join(folder_name, 'tex', subject_name + '_dif_2k.jpg')
+    elif dataset == 'thuman':
+        text_file = os.path.join(folder_name, 'material0.jpeg')
+    if not os.path.exists(text_file):
+        print('ERROR: dif file does not exist!!', text_file)
+        return             
 
-    #texture_image = cv2.imread(text_file)
-    #texture_image = cv2.cvtColor(texture_image, cv2.COLOR_BGR2RGB)
+    texture_image = cv2.imread(text_file)
+    texture_image = cv2.cvtColor(texture_image, cv2.COLOR_BGR2RGB)
     
     vertices, faces, normals, faces_normals, textures, face_textures = load_obj_mesh(mesh_file, with_normal=True, with_texture=True)
     vmin = vertices.min(0)
@@ -190,10 +198,10 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
     prt = np.loadtxt(prt_file)
     face_prt = np.load(face_prt_file)
     rndr.set_mesh(vertices, faces, normals, faces_normals, textures, face_textures, prt, face_prt, tan, bitan)    
-    # rndr.set_albedo(texture_image)
+    rndr.set_albedo(texture_image)
 
     rndr_uv.set_mesh(vertices, faces, normals, faces_normals, textures, face_textures, prt, face_prt, tan, bitan)   
-    # rndr_uv.set_albedo(texture_image)
+    rndr_uv.set_albedo(texture_image)
 
     os.makedirs(os.path.join(out_path, 'GEO', 'OBJ', subject_name),exist_ok=True)
     os.makedirs(os.path.join(out_path, 'PARAM', subject_name),exist_ok=True)
@@ -208,7 +216,9 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
         f = open(os.path.join(out_path, 'val.txt'), 'w')
         f.close()
 
-    # copy obj file
+    # copy obj or ply file
+    if copied_mesh_ext == 'ply':
+        mesh_file = os.path.join(folder_name, subject_name + '_100k.ply')
     cmd = 'cp %s %s' % (mesh_file, os.path.join(out_path, 'GEO', 'OBJ', subject_name))
     print(cmd)
     os.system(cmd)
@@ -223,48 +233,50 @@ def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im
             rndr_uv.rot_matrix = R
             rndr.set_camera(cam)
             rndr_uv.set_camera(cam)
-            
+            is_rgb_render_done = (len(os.listdir(os.path.join(out_path, 'RENDER', subject_name))) == 360)
+            is_uv_render_done = (len(os.listdir(os.path.join(out_path, 'UV_RENDER', subject_name))) == 360)
             for j in range(n_light):
                 sh_id = random.randint(0,shs.shape[0]-1)
                 sh = shs[sh_id]
                 sh_angle = 0.2*np.pi*(random.random()-0.5)
                 sh = rotateSH(sh, make_rotate(0, sh_angle, 0).T)
+                if not is_rgb_render_done:
+                    dic = {'sh': sh, 'ortho_ratio': cam.ortho_ratio, 'scale': y_scale, 'center': vmed, 'R': R}
+                    
+                    rndr.set_sh(sh)        
+                    rndr.analytic = False
+                    rndr.use_inverse_depth = False
+                    rndr.display()
 
-                dic = {'sh': sh, 'ortho_ratio': cam.ortho_ratio, 'scale': y_scale, 'center': vmed, 'R': R}
-                
-                rndr.set_sh(sh)        
-                rndr.analytic = False
-                rndr.use_inverse_depth = False
-                rndr.display()
+                    out_all_f = rndr.get_color(0)
+                    out_mask = out_all_f[:,:,3]
+                    out_all_f = cv2.cvtColor(out_all_f, cv2.COLOR_RGBA2BGR)
 
-                out_all_f = rndr.get_color(0)
-                out_mask = out_all_f[:,:,3]
-                out_all_f = cv2.cvtColor(out_all_f, cv2.COLOR_RGBA2BGR)
+                    np.save(os.path.join(out_path, 'PARAM', subject_name, '%d_%d_%02d.npy'%(y,p,j)),dic)
+                    cv2.imwrite(os.path.join(out_path, 'RENDER', subject_name, '%d_%d_%02d.jpg'%(y,p,j)),255.0*out_all_f)
+                    cv2.imwrite(os.path.join(out_path, 'MASK', subject_name, '%d_%d_%02d.png'%(y,p,j)),255.0*out_mask)
 
-                np.save(os.path.join(out_path, 'PARAM', subject_name, '%d_%d_%02d.npy'%(y,p,j)),dic)
-                cv2.imwrite(os.path.join(out_path, 'RENDER', subject_name, '%d_%d_%02d.jpg'%(y,p,j)),255.0*out_all_f)
-                cv2.imwrite(os.path.join(out_path, 'MASK', subject_name, '%d_%d_%02d.png'%(y,p,j)),255.0*out_mask)
+                if not is_uv_render_done:
+                    rndr_uv.set_sh(sh)
+                    rndr_uv.analytic = False
+                    rndr_uv.use_inverse_depth = False
+                    rndr_uv.display()
 
-                # rndr_uv.set_sh(sh)
-                # rndr_uv.analytic = False
-                # rndr_uv.use_inverse_depth = False
-                # rndr_uv.display()
+                    uv_color = rndr_uv.get_color(0)
+                    uv_color = cv2.cvtColor(uv_color, cv2.COLOR_RGBA2BGR)
+                    cv2.imwrite(os.path.join(out_path, 'UV_RENDER', subject_name, '%d_%d_%02d.jpg'%(y,p,j)),255.0*uv_color)
 
-                # uv_color = rndr_uv.get_color(0)
-                # uv_color = cv2.cvtColor(uv_color, cv2.COLOR_RGBA2BGR)
-                # cv2.imwrite(os.path.join(out_path, 'UV_RENDER', subject_name, '%d_%d_%02d.jpg'%(y,p,j)),255.0*uv_color)
+                    if y == 0 and j == 0 and p == pitch[0]:
+                        uv_pos = rndr_uv.get_color(1)
+                        uv_mask = uv_pos[:,:,3]
+                        cv2.imwrite(os.path.join(out_path, 'UV_MASK', subject_name, '00.png'),255.0*uv_mask)
 
-                # if y == 0 and j == 0 and p == pitch[0]:
-                #     uv_pos = rndr_uv.get_color(1)
-                #     uv_mask = uv_pos[:,:,3]
-                #     cv2.imwrite(os.path.join(out_path, 'UV_MASK', subject_name, '00.png'),255.0*uv_mask)
+                        data = {'default': uv_pos[:,:,:3]} # default is a reserved name
+                        pyexr.write(os.path.join(out_path, 'UV_POS', subject_name, '00.exr'), data) 
 
-                #     data = {'default': uv_pos[:,:,:3]} # default is a reserved name
-                #     pyexr.write(os.path.join(out_path, 'UV_POS', subject_name, '00.exr'), data) 
-
-                #     uv_nml = rndr_uv.get_color(2)
-                #     uv_nml = cv2.cvtColor(uv_nml, cv2.COLOR_RGBA2BGR)
-                #     cv2.imwrite(os.path.join(out_path, 'UV_NORMAL', subject_name, '00.png'),255.0*uv_nml)
+                        uv_nml = rndr_uv.get_color(2)
+                        uv_nml = cv2.cvtColor(uv_nml, cv2.COLOR_RGBA2BGR)
+                        cv2.imwrite(os.path.join(out_path, 'UV_NORMAL', subject_name, '00.png'),255.0*uv_nml)
 
 
 if __name__ == '__main__':
@@ -276,6 +288,10 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--ms_rate', type=int, default=1, help='higher ms rate results in less aliased output. MESA renderer only supports ms_rate=1.')
     parser.add_argument('-e', '--egl',  action='store_true', help='egl rendering option. use this when rendering with headless server with NVIDIA GPU')
     parser.add_argument('-s', '--size',  type=int, default=512, help='rendering image size')
+    parser.add_argument('--copied_mesh_ext', type=str, default='obj', choices=['obj', 'ply'],
+                        help='specify file extension of mesh files which are copied to GEO/OBJ directory')
+    parser.add_argument('--dataset', type=str, default='rp', choices=['rp', 'ioys', 'thuman'],
+                        help='specify the type of dataset')
     args = parser.parse_args()
 
     # NOTE: GL context has to be created before any other OpenGL function loads.
@@ -288,9 +304,14 @@ if __name__ == '__main__':
     
     input_dir = Path(args.input)
     for subject in sorted(input_dir.iterdir()):
-        subject_name = subject.stem[:-4]
+        if args.dataset == 'rp' or args.dataset == 'ioys':
+            subject_name = subject.stem[:-4]
+        elif args.dataset == 'thuman':
+            subject_name = subject.stem
+        else:
+            raise NotImplementedError
         subject_render_dir = os.path.join(args.out_dir, 'RENDER', subject_name)
-        if os.path.exists(subject_render_dir) and \
-           (len(os.listdir(subject_render_dir)) == 360): # for unexpected exit before done processing
-           continue
-        render_prt_ortho(args.out_dir, str(subject), subject_name, shs, rndr, rndr_uv, args.size, 1, 1, pitch=[0])
+        # if os.path.exists(subject_render_dir) and \
+        #    (len(os.listdir(subject_render_dir)) == 360): # for unexpected exit before done processing
+        #    continue
+        render_prt_ortho(args.out_dir, str(subject), subject_name, shs, rndr, rndr_uv, args.size, 1, 1, pitch=[0], dataset=args.dataset, copied_mesh_ext=args.copied_mesh_ext)

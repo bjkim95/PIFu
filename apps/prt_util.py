@@ -124,9 +124,18 @@ def computePRT(mesh_path, n, order):
     # when loading PRT in other program, use the triangle list from trimesh.
     return PRT, mesh.faces
 
-def testPRT(dir_path, n=40, ext='obj'):
-    sub_name = dir_path.stem[:-4]
-    obj_path = dir_path / (sub_name + f'_100k.{ext}')
+def testPRT(dir_path, dataset='rp', n=40):
+    if dataset == 'rp':
+        sub_name = dir_path.stem[:-4]
+        obj_path = dir_path / (sub_name + f'_100k.obj')
+    elif dataset == 'ioys':
+        sub_name = dir_path.stem[:-4]
+        obj_path = dir_path / (sub_name + f'_100k.ply')
+    elif dataset == 'thuman':
+        sub_name = dir_path.stem
+        obj_path = dir_path / (sub_name + '.obj')
+    else:
+        raise NotImplementedError
 
     bounce_path = dir_path / 'bounce'
     if (bounce_path / 'bounce0.txt').exists():
@@ -141,11 +150,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input', type=str, default='/home/shunsuke/Downloads/rp_dennis_posed_004_OBJ')
     parser.add_argument('-n', '--n_sample', type=int, default=40, help='squared root of number of sampling. the higher, the more accurate, but slower')
-    parser.add_argument('--ext', type=str, default='obj', choices=['obj', 'ply'],
-                        help='specify file extension of mesh files')
+    parser.add_argument('--dataset', type=str, default='rp', choices=['rp', 'ioys', 'thuman'],
+                        help='specify the type of dataset')
     args = parser.parse_args()
 
     input_dir = Path(args.input)
     for subject in sorted(input_dir.iterdir()):
         print(f'processing {subject.stem}')
-        testPRT(subject, ext=args.ext)
+        testPRT(subject, dataset=args.dataset)
