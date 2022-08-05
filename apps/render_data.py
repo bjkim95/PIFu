@@ -15,7 +15,6 @@ from tqdm import tqdm
 from pathlib import Path
 import ipdb
 
-
 def make_rotate(rx, ry, rz):
     sinX = np.sin(rx)
     sinY = np.sin(ry)
@@ -146,7 +145,13 @@ def rotateBand2(x, R):
 
     return dst
 
-def render_prt_ortho(out_path, folder_name, subject_name, shs, rndr, rndr_uv, im_size, angl_step=4, n_light=1, pitch=[0], dataset='rp', copied_mesh_ext='obj'):
+def render_prt_ortho(out_path, subject, shs, rndr, rndr_uv, im_size, angl_step=4, n_light=1, pitch=[0], dataset='rp', copied_mesh_ext='obj'):
+    folder_name = str(subject)
+    if dataset == 'rp' or dataset == 'ioys':
+        subject_name = subject.stem[:-4]
+    elif dataset == 'thuman':
+        subject_name = subject.stem
+    
     cam = Camera(width=im_size, height=im_size)
     cam.ortho_ratio = 0.4 * (512 / im_size)
     cam.near = -100
@@ -304,14 +309,5 @@ if __name__ == '__main__':
     
     input_dir = Path(args.input)
     for subject in sorted(input_dir.iterdir()):
-        if args.dataset == 'rp' or args.dataset == 'ioys':
-            subject_name = subject.stem[:-4]
-        elif args.dataset == 'thuman':
-            subject_name = subject.stem
-        else:
-            raise NotImplementedError
-        subject_render_dir = os.path.join(args.out_dir, 'RENDER', subject_name)
-        # if os.path.exists(subject_render_dir) and \
-        #    (len(os.listdir(subject_render_dir)) == 360): # for unexpected exit before done processing
-        #    continue
-        render_prt_ortho(args.out_dir, str(subject), subject_name, shs, rndr, rndr_uv, args.size, 1, 1, pitch=[0], dataset=args.dataset, copied_mesh_ext=args.copied_mesh_ext)
+        # render_prt_ortho(args.out_dir, str(subject), subject.stem, shs, rndr, rndr_uv, args.size, 1, 1, pitch=[0], dataset=args.dataset, copied_mesh_ext=args.copied_mesh_ext)
+        render_prt_ortho(args.out_dir, subject, shs, rndr, rndr_uv, args.size, 1, 1, pitch=[0], dataset=args.dataset, copied_mesh_ext=args.copied_mesh_ext)

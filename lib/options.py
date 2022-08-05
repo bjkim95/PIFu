@@ -13,6 +13,8 @@ class BaseOptions():
                             help='path to images (data folder)')
 
         g_data.add_argument('--loadSize', type=int, default=512, help='load size of input image')
+        g_data.add_argument('--dataset', type=str, default='rp', choices=['rp', 'ioys', 'thuman'],
+                        help='specify the type of dataset')
 
         # Experiment related
         g_exp = parser.add_argument_group('Experiment')

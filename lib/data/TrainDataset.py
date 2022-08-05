@@ -13,12 +13,19 @@ import logging
 log = logging.getLogger('trimesh')
 log.setLevel(40)
 
-def load_trimesh(root_dir):
+def load_trimesh(root_dir, dataset='rp'):
     folders = os.listdir(root_dir)
     meshs = {}
     for i, f in enumerate(folders):
         sub_name = f
-        meshs[sub_name] = trimesh.load(os.path.join(root_dir, f, '%s_100k.obj' % sub_name))
+        if dataset == 'rp':
+            meshs[sub_name] = trimesh.load(os.path.join(root_dir, f, '%s_100k.obj' % sub_name))
+        elif dataset == 'ioys':
+            meshs[sub_name] = trimesh.load(os.path.join(root_dir, f, '%s_100k.ply' % sub_name))
+        elif dataset == 'thuman':
+            meshs[sub_name] = trimesh.load(os.path.join(root_dir, f, '%s.obj' % sub_name))
+        else:
+            raise NotImplementedError
 
     return meshs
 
@@ -95,7 +102,7 @@ class TrainDataset(Dataset):
                                    hue=opt.aug_hue)
         ])
 
-        self.mesh_dic = load_trimesh(self.OBJ)
+        self.mesh_dic = load_trimesh(self.OBJ, dataset=opt.dataset)
 
     def get_subjects(self):
         all_subjects = os.listdir(self.RENDER)
