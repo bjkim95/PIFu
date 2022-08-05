@@ -22,7 +22,7 @@ if __name__=='__main__':
         obj_final = str(subject / (subject_name + '_100k.obj'))
         tex_dir = subject / 'tex'
         tex_dir.mkdir(exist_ok=True)
-        textname = str(tex_dir / (subject_name + '_dif_2k.png'))
+        textname = './' + subject_name + '_dif_2k.png'
         if Path(obj_final).exists() and Path(textname).exists():
             continue
 
@@ -47,3 +47,6 @@ if __name__=='__main__':
         # remove temp files
         os.remove(obj_from_ply)
         os.remove(obj_with_uv)
+
+        # add extension to the final obj file
+        shutil.move(obj_final, obj_final)
