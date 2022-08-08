@@ -9,11 +9,22 @@ import torch
 from PIL.ImageFilter import GaussianBlur
 import trimesh
 import logging
+import ipdb
+from pathlib import Path
+import parmap
+import multiprocessing as mp
+from functools import partial
 
 log = logging.getLogger('trimesh')
 log.setLevel(40)
 
+def append_mesh_dic(file_path, mesh_dic):
+    sub_name = file_path.stem
+    # print(f'load {sub_name}')
+    mesh_dic[sub_name] = trimesh.load(file_path)
+
 def load_trimesh(root_dir, dataset='rp'):
+    ''' original code
     folders = os.listdir(root_dir)
     meshs = {}
     for i, f in enumerate(folders):
@@ -23,9 +34,25 @@ def load_trimesh(root_dir, dataset='rp'):
         elif dataset == 'ioys':
             meshs[sub_name] = trimesh.load(os.path.join(root_dir, f, '%s_100k.ply' % sub_name))
         elif dataset == 'thuman':
+            print(f'load {sub_name}')
             meshs[sub_name] = trimesh.load(os.path.join(root_dir, f, '%s.obj' % sub_name))
         else:
             raise NotImplementedError
+    '''
+    manager = mp.Manager()
+
+    root_dir = Path(root_dir)
+    meshs = manager.dict()
+    if dataset == 'rp':
+        mesh_files = [f / (f.stem + '_100k.obj') for f in root_dir.iterdir()]    
+    elif dataset == 'ioys':
+        mesh_files = [f / (f.stem + '_100k.ply') for f in root_dir.iterdir()]
+    elif dataset == 'thuman':
+        mesh_files = [f / (f.stem + '.obj') for f in root_dir.iterdir()]
+    else:
+        raise NotImplementedError
+    append_mesh_dic_ = partial(append_mesh_dic, mesh_dic=meshs)
+    parmap.map(append_mesh_dic_, mesh_files, pm_pbar=False, pm_processes=mp.cpu_count())
 
     return meshs
 
@@ -279,7 +306,6 @@ class TrainDataset(Dataset):
 
         samples = np.concatenate([inside_points, outside_points], 0).T
         labels = np.concatenate([np.ones((1, inside_points.shape[0])), np.zeros((1, outside_points.shape[0]))], 1)
-
         # save_samples_truncted_prob('out.ply', samples.T, labels.T)
         # exit()
 
