@@ -111,6 +111,9 @@ class TrainDataset(Dataset):
 
         self.num_sample_inout = self.opt.num_sample_inout
         self.num_sample_color = self.opt.num_sample_color
+        self.sigma = self.opt.sigma
+        if self.opt.dataset == 'thuman':
+            self.sigma /= 180  # THuman 2.0 meshes are normalized to [-0.5, 0.5] in y-axis.
 
         self.yaw_list = list(range(0,360,1))
         self.pitch_list = [0]
@@ -177,7 +180,7 @@ class TrainDataset(Dataset):
 
             # loading calibration data
             param = np.load(param_path, allow_pickle=True)
-            # pixel unit / world unit
+            # world unit / pixel unit
             ortho_ratio = param.item().get('ortho_ratio')  # cam.ortho_ratio = 0.4 * (512 / im_size)
             # world unit / model unit
             scale = param.item().get('scale')  # y_scale = 180/(vmax[up_axis] - vmin[up_axis])
@@ -285,11 +288,14 @@ class TrainDataset(Dataset):
             torch.manual_seed(1991)
         mesh = self.mesh_dic[subject]
         surface_points, _ = trimesh.sample.sample_surface(mesh, 4 * self.num_sample_inout)
-        sample_points = surface_points + np.random.normal(scale=self.opt.sigma, size=surface_points.shape)
+        sample_points = surface_points + np.random.normal(scale=self.sigma, size=surface_points.shape)
 
         # add random points within image space
         length = self.B_MAX - self.B_MIN
-        random_points = np.random.rand(self.num_sample_inout // 4, 3) * length + self.B_MIN
+        if self.opt.dataset == 'thuman':
+            random_points = np.random.rand(self.num_sample_inout // 4, 3) - 0.5
+        else:
+            random_points = np.random.rand(self.num_sample_inout // 4, 3) * length + self.B_MIN
         sample_points = np.concatenate([sample_points, random_points], 0)
         np.random.shuffle(sample_points)
 
@@ -364,7 +370,7 @@ class TrainDataset(Dataset):
         # Samples are around the true surface with an offset
         normal = torch.Tensor(surface_normal).float()
         samples = torch.Tensor(surface_points).float() \
-                  + torch.normal(mean=torch.zeros((1, normal.size(1))), std=self.opt.sigma).expand_as(normal) * normal
+                  + torch.normal(mean=torch.zeros((1, normal.size(1))), std=self.sigma).expand_as(normal) * normal
 
         # Normalized to [-1, 1]
         rgbs_color = 2.0 * torch.Tensor(surface_colors).float() - 1.0
