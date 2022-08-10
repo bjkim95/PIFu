@@ -14,6 +14,7 @@ from pathlib import Path
 import parmap
 import multiprocessing as mp
 from functools import partial
+import pickle
 
 log = logging.getLogger('trimesh')
 log.setLevel(40)
@@ -132,7 +133,14 @@ class TrainDataset(Dataset):
                                    hue=opt.aug_hue)
         ])
 
-        self.mesh_dic = load_trimesh(self.OBJ, dataset=opt.dataset)
+        mesh_dict_path = os.path.join(self.root, 'mesh_dic.pkl')
+        if os.path.exists(mesh_dict_path):
+            with open(mesh_dict_path, 'rb') as f:
+                self.mesh_dic = pickle.load(f)
+        else:
+            self.mesh_dic = load_trimesh(self.OBJ, dataset=opt.dataset)
+            with open(mesh_dict_path, 'wb') as f:
+                pickle.dump(self.mesh_dic, f)
 
     def get_subjects(self):
         all_subjects = os.listdir(self.RENDER)
