@@ -15,6 +15,7 @@ class BaseOptions():
         g_data.add_argument('--loadSize', type=int, default=512, help='load size of input image')
         g_data.add_argument('--dataset', type=str, default='rp', choices=['rp', 'ioys', 'thuman'],
                         help='specify the type of dataset')
+        g_data.add_argument('--use_pkl', action='store_true', help='use pkl files for loading mesh in dataloader')
 
         # Experiment related
         g_exp = parser.add_argument_group('Experiment')

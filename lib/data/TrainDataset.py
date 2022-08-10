@@ -133,14 +133,18 @@ class TrainDataset(Dataset):
                                    hue=opt.aug_hue)
         ])
 
-        mesh_dict_path = os.path.join(self.root, 'mesh_dic.pkl')
-        if os.path.exists(mesh_dict_path):
-            with open(mesh_dict_path, 'rb') as f:
-                self.mesh_dic = pickle.load(f)
+        if not self.opt.use_pkl:
+            # original implementation
+            mesh_dict_path = os.path.join(self.root, 'mesh_dic.pkl')
+            if os.path.exists(mesh_dict_path):
+                with open(mesh_dict_path, 'rb') as f:
+                    self.mesh_dic = pickle.load(f)
+            else:
+                self.mesh_dic = load_trimesh(self.OBJ, dataset=opt.dataset)
+                with open(mesh_dict_path, 'wb') as f:
+                    pickle.dump(self.mesh_dic, f)
         else:
-            self.mesh_dic = load_trimesh(self.OBJ, dataset=opt.dataset)
-            with open(mesh_dict_path, 'wb') as f:
-                pickle.dump(self.mesh_dic, f)
+            self.mesh_dic = None
 
     def get_subjects(self):
         all_subjects = os.listdir(self.RENDER)
@@ -294,7 +298,13 @@ class TrainDataset(Dataset):
             random.seed(1991)
             np.random.seed(1991)
             torch.manual_seed(1991)
-        mesh = self.mesh_dic[subject]
+
+        if self.mesh_dic is not None:
+            mesh = self.mesh_dic[subject]
+        else:
+            mesh_pkl_path = Path(self.OBJ) / subject / f'{subject}.pkl'
+            with open(mesh_pkl_path, 'rb') as f:
+                mesh = pickle.load(f)
         surface_points, _ = trimesh.sample.sample_surface(mesh, 4 * self.num_sample_inout)
         sample_points = surface_points + np.random.normal(scale=self.sigma, size=surface_points.shape)
 

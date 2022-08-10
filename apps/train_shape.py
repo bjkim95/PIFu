@@ -72,6 +72,7 @@ def train(opt):
         # set cuda
         cuda = torch.device(f'cuda:{opt.gpu_id}')
 
+    state_dict = {}  # for torch.save
     # if resuming, load train state
     if opt.continue_train:
         if opt.resume_epoch < 0:
@@ -190,6 +191,8 @@ def train(opt):
         outfile.write(json.dumps(vars(opt), indent=2))
 
     # training
+    if is_main_process() and opt.use_pkl:  # use .pkl for meshes in dataloader
+        print('Use .pkl mesh files for training!')
     start_epoch = 0 if not opt.continue_train else max(opt.resume_epoch,0)
     for epoch in range(start_epoch, opt.num_epoch):
         print(datetime.datetime.now())
