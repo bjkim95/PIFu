@@ -58,6 +58,37 @@ def is_main_process():
 #----------------------------------------
 
 def train(opt):
+    # control randomness
+    seed_worker = None
+    g = None
+    if opt.fix_random_seed:
+        # Caution! we cannot acheive perfect reproducibility because of operations without deterministic implementation
+        if opt.continue_train:
+            seed = state_dict['seed']
+        else:
+            if opt.manual_seed is None:
+                seed = np.random.randint(0, 4294967296)  # 2**32 = 4294967296
+            else:
+                seed = opt.manual_seed
+            state_dict = {'seed': seed}
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # for multi-GPU.
+        np.random.seed(seed)  
+        random.seed(seed)  
+        torch.manual_seed(seed)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+
+        # worker_init_fn for dataloader
+        def seed_worker(worker_id):
+            np.random.seed(seed)
+            random.seed(seed)
+
+        g = torch.Generator()
+        g.manual_seed(seed)
+
+    # distributed training
     distributed = False
     if 'WORLD_SIZE' in os.environ:
         distributed = (int(os.environ['WORLD_SIZE']) > 1)
@@ -70,6 +101,16 @@ def train(opt):
     else:
         # set cuda
         cuda = torch.device(f'cuda:{opt.gpu_id}')
+
+    # if resuming, load train state
+    if opt.continue_train:
+        if opt.resume_epoch < 0:
+            model_path = '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name)
+        else:
+            model_path = '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, opt.resume_epoch)
+        state_dict = torch.load(model_path, map_location=cuda)
+
+
     
     train_dataset = TrainDataset(opt, phase='train')
     test_dataset = TrainDataset(opt, phase='test')
@@ -82,21 +123,25 @@ def train(opt):
         test_sampler = DistributedSampler(dataset=test_dataset, shuffle=not opt.serial_batches)
         train_data_loader = DataLoader(train_dataset,
                                    batch_size=opt.batch_size, sampler=train_sampler,
-                                   num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+                                   num_workers=opt.num_threads, pin_memory=opt.pin_memory, 
+                                   worker_init_fn=seed_worker, generator=g)
         # NOTE: batch size should be 1 and use all the points for evaluation
         test_data_loader = DataLoader(test_dataset,
                                   batch_size=1, shuffle=False, sampler=test_sampler,
-                                  num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+                                  num_workers=opt.num_threads, pin_memory=opt.pin_memory,
+                                  worker_init_fn=seed_worker, generator=g)
     else:
         train_sampler = None
         test_sampler = None
         train_data_loader = DataLoader(train_dataset,
                                    batch_size=opt.batch_size, shuffle=not opt.serial_batches,
-                                   num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+                                   num_workers=opt.num_threads, pin_memory=opt.pin_memory,
+                                   worker_init_fn=seed_worker, generator=g)
         # NOTE: batch size should be 1 and use all the points for evaluation
         test_data_loader = DataLoader(test_dataset,
                                   batch_size=1, shuffle=not opt.serial_batches,
-                                  num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+                                  num_workers=opt.num_threads, pin_memory=opt.pin_memory,
+                                  worker_init_fn=seed_worker, generator=g)
 
     print('train data size: ', len(train_data_loader))
     print('test data size: ', len(test_data_loader))
@@ -120,19 +165,20 @@ def train(opt):
     def set_eval():
         netG.eval()
 
-    # load checkpoints
-    if opt.load_netG_checkpoint_path is not None and is_main_process():
-        print('loading for net G ...', opt.load_netG_checkpoint_path)
-        netG.load_state_dict(torch.load(opt.load_netG_checkpoint_path, map_location=cuda))
+    # # load checkpoints
+    # if opt.load_netG_checkpoint_path is not None and is_main_process():
+    #     print('loading for net G ...', opt.load_netG_checkpoint_path)
+    #     netG.load_state_dict(torch.load(opt.load_netG_checkpoint_path, map_location=cuda))
 
     if opt.continue_train:
-        if opt.resume_epoch < 0:
-            model_path = '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name)
-        else:
-            model_path = '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, opt.resume_epoch)
-        if is_main_process():
-            print('Resuming from ', model_path)
-        netG.load_state_dict(torch.load(model_path, map_location=cuda))
+        netG.load_state_dict(state_dict['netG'])
+        # if opt.resume_epoch < 0:
+        #     model_path = '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name)
+        # else:
+        #     model_path = '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, opt.resume_epoch)
+        # if is_main_process():
+        #     print('Resuming from ', model_path)
+        # netG.load_state_dict(torch.load(model_path, map_location=cuda))
 
     os.makedirs(opt.checkpoints_path, exist_ok=True)
     os.makedirs(opt.results_path, exist_ok=True)
@@ -155,6 +201,7 @@ def train(opt):
         set_train()
         iter_data_time = time.time()
         for train_idx, train_data in enumerate(train_data_loader):
+            print(train_data['name'])
             iter_start_time = time.time()
 
             # retrieve the data
@@ -169,7 +216,7 @@ def train(opt):
 
             label_tensor = train_data['labels'].to(device=cuda)
 
-            res, error = netG.forward(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
+            res, error = netG(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
 
             optimizerG.zero_grad()
             error.backward()
@@ -188,8 +235,11 @@ def train(opt):
                         int(eta - 60 * (eta // 60))))
 
             if train_idx % opt.freq_save == 0 and train_idx != 0 and is_main_process():
-                torch.save(netG.state_dict(), '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
-                torch.save(netG.state_dict(), '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
+                state_dict['netG'] = netG.state_dict()
+                torch.save(state_dict, '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
+                torch.save(state_dict, '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
+                # torch.save(netG.state_dict(), '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
+                # torch.save(netG.state_dict(), '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
 
             if train_idx % opt.freq_save_ply == 0 and is_main_process():
                 save_path = '%s/%s/pred.ply' % (opt.results_path, opt.name)

@@ -49,6 +49,8 @@ class BaseOptions():
         
         g_train.add_argument('--resume_epoch', type=int, default=-1, help='epoch resuming the training')
         g_train.add_argument('--continue_train', action='store_true', help='continue training: load the latest model')
+        g_train.add_argument('--fix_random_seed', action='store_true', help='fix random seed for training')
+        g_train.add_argument('--manual_seed', type=int, default=None, help='manual random seed')
 
         # Testing related
         g_test = parser.add_argument_group('Testing')
