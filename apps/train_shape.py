@@ -58,6 +58,28 @@ def is_main_process():
 #----------------------------------------
 
 def train(opt):
+    # distributed training
+    distributed = False
+    if 'WORLD_SIZE' in os.environ:
+        distributed = (int(os.environ['WORLD_SIZE']) > 1)
+
+    if distributed:
+        torch.cuda.set_device(opt.local_rank)
+        dist.init_process_group(backend='nccl', init_method='env://')
+        cuda = torch.device(f'cuda:{opt.local_rank}')
+
+    else:
+        # set cuda
+        cuda = torch.device(f'cuda:{opt.gpu_id}')
+
+    # if resuming, load train state
+    if opt.continue_train:
+        if opt.resume_epoch < 0:
+            model_path = '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name)
+        else:
+            model_path = '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, opt.resume_epoch)
+        state_dict = torch.load(model_path, map_location=cuda)
+
     # control randomness
     seed_worker = None
     g = None
@@ -88,30 +110,7 @@ def train(opt):
         g = torch.Generator()
         g.manual_seed(seed)
 
-    # distributed training
-    distributed = False
-    if 'WORLD_SIZE' in os.environ:
-        distributed = (int(os.environ['WORLD_SIZE']) > 1)
 
-    if distributed:
-        torch.cuda.set_device(opt.local_rank)
-        dist.init_process_group(backend='nccl', init_method='env://')
-        cuda = torch.device(f'cuda:{opt.local_rank}')
-
-    else:
-        # set cuda
-        cuda = torch.device(f'cuda:{opt.gpu_id}')
-
-    # if resuming, load train state
-    if opt.continue_train:
-        if opt.resume_epoch < 0:
-            model_path = '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name)
-        else:
-            model_path = '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, opt.resume_epoch)
-        state_dict = torch.load(model_path, map_location=cuda)
-
-
-    
     train_dataset = TrainDataset(opt, phase='train')
     test_dataset = TrainDataset(opt, phase='test')
 
@@ -143,8 +142,9 @@ def train(opt):
                                   num_workers=opt.num_threads, pin_memory=opt.pin_memory,
                                   worker_init_fn=seed_worker, generator=g)
 
-    print('train data size: ', len(train_data_loader))
-    print('test data size: ', len(test_data_loader))
+    if is_main_process():
+        print('train data size: ', len(train_data_loader))
+        print('test data size: ', len(test_data_loader))
 
     # create net
     netG = HGPIFuNet(opt, projection_mode)
@@ -200,8 +200,12 @@ def train(opt):
         
         set_train()
         iter_data_time = time.time()
+        last_iter = -1
+        if opt.continue_train:
+            last_iter = state_dict['last_iter']
         for train_idx, train_data in enumerate(train_data_loader):
-            print(train_data['name'])
+            if epoch == start_epoch and train_idx <= last_iter: # for continue iteration
+                continue
             iter_start_time = time.time()
 
             # retrieve the data
@@ -235,6 +239,7 @@ def train(opt):
                         int(eta - 60 * (eta // 60))))
 
             if train_idx % opt.freq_save == 0 and train_idx != 0 and is_main_process():
+                state_dict['last_iter'] = train_idx
                 state_dict['netG'] = netG.state_dict()
                 torch.save(state_dict, '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
                 torch.save(state_dict, '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
